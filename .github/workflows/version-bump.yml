@@ -26,7 +26,11 @@ jobs:
       - name: Get latest version
         id: latest_version
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Récupérer tous les tags triés par version
+          LATEST_TAG=$(git tag -l "v*" | sort -V | tail -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
           echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
           echo "Current version is: ${LATEST_TAG}"
 
@@ -54,16 +58,18 @@ jobs:
           CURRENT_VERSION=${{ steps.latest_version.outputs.latest_tag }}
           echo "Processing version: ${CURRENT_VERSION}"
           
-          # Vérifier que la version actuelle est valide
-          if [[ ! $CURRENT_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version actuelle invalide: ${CURRENT_VERSION}"
-            echo "new_version=v0.1.0" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Extraire les numéros de version
+          CURRENT_VERSION=${CURRENT_VERSION#v}
+          if [[ ! $CURRENT_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version invalide, début à 0.0.0"
+            MAJOR=0
+            MINOR=0
+            PATCH=0
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
           fi
           
-          CURRENT_VERSION=${CURRENT_VERSION#v}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-          
+          # Incrémenter la version
           case "${{ steps.bump_type.outputs.bump_type }}" in
             major)
               NEW_VERSION="$((MAJOR + 1)).0.0"
@@ -80,26 +86,34 @@ jobs:
               ;;
           esac
           
-          echo "new_version=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "New version will be: v${NEW_VERSION}"
+          NEW_TAG="v${NEW_VERSION}"
+          
+          # Vérifier que la nouvelle version est plus grande que l'ancienne
+          if ! echo "${CURRENT_VERSION}\n${NEW_VERSION}" | sort -V -C; then
+            echo "Error: La nouvelle version doit être plus grande que l'ancienne"
+            exit 1
+          fi
+          
+          echo "new_version=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "New version will be: ${NEW_TAG}"
 
-      - name: Verify and create tag
+      - name: Create and push tag
         run: |
           NEW_TAG="${{ steps.version.outputs.new_version }}"
           
           # Vérifier que le tag est valide
           if [[ ! $NEW_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version format: ${NEW_TAG}"
+            echo "Error: Format de version invalide: ${NEW_TAG}"
             exit 1
           fi
           
           # Vérifier que le tag n'existe pas déjà
           if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
-            echo "Error: Tag ${NEW_TAG} already exists"
+            echo "Error: Le tag ${NEW_TAG} existe déjà"
             exit 1
           fi
           
-          echo "Creating new tag: ${NEW_TAG}"
+          echo "Création du nouveau tag: ${NEW_TAG}"
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
           git tag -a "${NEW_TAG}" -m "Release ${NEW_TAG}"
