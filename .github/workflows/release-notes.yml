@@ -8,6 +8,10 @@ on:
             - 'v*'
     workflow_dispatch:
 
+permissions:
+    contents: write
+    pull-requests: write
+
 jobs:
     draft-release-notes:
         runs-on: ubuntu-latest
