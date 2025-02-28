@@ -37,7 +37,10 @@ jobs:
       - name: Determine version bump type
         id: bump_type
         run: |
-          if [[ "${{ github.event.inputs.version-type }}" != "auto" ]]; then
+          # Définir un type par défaut
+          BUMP_TYPE="patch"
+          
+          if [[ "${{ github.event.inputs.version-type }}" != "auto" && "${{ github.event.inputs.version-type }}" != "" ]]; then
             BUMP_TYPE="${{ github.event.inputs.version-type }}"
           else
             COMMITS=$(git log ${{ steps.latest_version.outputs.latest_tag }}..HEAD --pretty=format:"%s")
@@ -45,12 +48,10 @@ jobs:
               BUMP_TYPE="major"
             elif echo "$COMMITS" | grep -q "^feat: "; then
               BUMP_TYPE="minor"
-            else
-              BUMP_TYPE="patch"
             fi
           fi
+          echo "Type de version déterminé: ${BUMP_TYPE}"
           echo "bump_type=${BUMP_TYPE}" >> "$GITHUB_OUTPUT"
-          echo "Bump type determined as: ${BUMP_TYPE}"
 
       - name: Calculate new version
         id: version
@@ -70,7 +71,10 @@ jobs:
           fi
           
           # Incrémenter la version
-          case "${{ steps.bump_type.outputs.bump_type }}" in
+          BUMP_TYPE="${{ steps.bump_type.outputs.bump_type }}"
+          echo "Type de bump: ${BUMP_TYPE}"
+          
+          case "${BUMP_TYPE}" in
             major)
               NEW_VERSION="$((MAJOR + 1)).0.0"
               ;;
@@ -81,12 +85,13 @@ jobs:
               NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
               ;;
             *)
-              echo "Type de version invalide"
+              echo "Type de version invalide: ${BUMP_TYPE}"
               exit 1
               ;;
           esac
           
           NEW_TAG="v${NEW_VERSION}"
+          echo "New version will be: ${NEW_TAG}"
           
           # Vérifier que la nouvelle version est plus grande que l'ancienne
           if ! echo "${CURRENT_VERSION}\n${NEW_VERSION}" | sort -V -C; then
@@ -95,7 +100,6 @@ jobs:
           fi
           
           echo "new_version=${NEW_TAG}" >> "$GITHUB_OUTPUT"
-          echo "New version will be: ${NEW_TAG}"
 
       - name: Create and push tag
         run: |
